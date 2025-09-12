@@ -43,6 +43,7 @@ import java.nio.MappedByteBuffer;
 import java.text.SimpleDateFormat;
 import java.util.Date;
 import java.util.Locale;
+import java.util.Arrays;
 
 import org.tensorflow.lite.Interpreter;
 import org.tensorflow.lite.support.common.FileUtil;
@@ -57,6 +58,9 @@ import ar.edu.info.lidi.upa.tts.TTSListener;
 import ar.edu.info.lidi.upa.utils.Constants;
 import ar.edu.info.lidi.upa.utils.JSONExporter;
 import ar.edu.info.lidi.upa.utils.JSONImporter;
+
+import android.graphics.Canvas;
+import android.graphics.Color;
 
 public class MainActivity extends AppCompatActivity implements ProcessCompletedCallBackInterface, Observer {
 
@@ -94,7 +98,7 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
     private static final int REQUEST_IMAGE_PICK = 2;
 
     private static final int MODEL_INPUT_SIZE = 224;
-    private static final int NUM_CLASSES = 4;
+    private static final int NUM_CLASSES = 20;
     private Interpreter tflite;
     private Bitmap capturedImageBitmap;
 
@@ -112,7 +116,7 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
         lanzarIntentCamara();
     }
 
-    private void lanzarIntentCamara() {
+/*    private void lanzarIntentCamara() {
         Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
 
         if (takePictureIntent.resolveActivity(getPackageManager()) != null) {
@@ -128,6 +132,37 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
             if (photoFile != null) {
                 photoUri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", photoFile);
                 takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri);
+                startActivityForResult(takePictureIntent, REQUEST_IMAGE_CAPTURE);
+            }
+        } else {
+            Toast.makeText(this, "No hay aplicación de cámara disponible", Toast.LENGTH_SHORT).show();
+        }
+    }
+*/
+    private void lanzarIntentCamara() {
+        Intent takePictureIntent = new Intent(MediaStore.ACTION_IMAGE_CAPTURE);
+
+        // Especificar que se use la cámara trasera
+        takePictureIntent.putExtra("android.intent.extras.CAMERA_FACING", 0); // 0 = cámara trasera
+        takePictureIntent.putExtra("android.intent.extras.LENS_FACING_FRONT", 0); // 0 = no frontal
+
+        if (takePictureIntent.resolveActivity(getPackageManager()) != null) {
+            File photoFile = null;
+            try {
+                photoFile = createImageFile();
+            } catch (IOException ex) {
+                Toast.makeText(this, "No se pudo crear el archivo de imagen", Toast.LENGTH_SHORT).show();
+                Log.e(TAG, "Error al crear el archivo de imagen: " + ex.getMessage());
+                return;
+            }
+
+            if (photoFile != null) {
+                photoUri = FileProvider.getUriForFile(this, getPackageName() + ".fileprovider", photoFile);
+                takePictureIntent.putExtra(MediaStore.EXTRA_OUTPUT, photoUri);
+
+                // Asegurar que se use la cámara trasera
+                takePictureIntent.putExtra("android.intent.extras.CAMERA_FACING", 0);
+
                 startActivityForResult(takePictureIntent, REQUEST_IMAGE_CAPTURE);
             }
         } else {
@@ -220,26 +255,7 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
         datosEditText.setVisibility(View.GONE);
 
         listener = new TTSListener();
-        tts = new TextToSpeech(getBaseContext(), status -> {
-            if (status == TextToSpeech.SUCCESS) {
-                int result = tts.setLanguage(new Locale("es", "AR"));
-                if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                    Log.e(TAG, "El idioma español no está soportado");
-                } else {
-                    tts.setSpeechRate(1.0f);
-                    tts.setPitch(1.0f);
-
-                    tts.speak(
-                            "Desliza a la izquierda para averiguar tu ubicación mediante señales de Wi-Fi, o a la derecha para usar la cámara y reconocer tu ubicación",
-                            TextToSpeech.QUEUE_FLUSH,
-                            null,
-                            "welcome_msg"
-                    );
-                }
-            } else {
-                Log.e(TAG, "Error inicializando TTS");
-            }
-        });
+        tts = new TextToSpeech(getBaseContext(), listener);
 
         posAssist.addObserver(this);
     }
@@ -297,73 +313,120 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
 
         if (imageUri != null) {
             try {
+                // Cargar la imagen con la máxima calidad posible
                 BitmapFactory.Options options = new BitmapFactory.Options();
-                options.inJustDecodeBounds = true;
-                InputStream inputStream1 = getContentResolver().openInputStream(imageUri);
-                BitmapFactory.decodeStream(inputStream1, null, options);
-                if (inputStream1 != null) inputStream1.close();
+                options.inSampleSize = 1; // Sin reducción de muestreo
+                options.inPreferredConfig = Bitmap.Config.ARGB_8888; // Máxima calidad
 
-                int scaleFactor = Math.max(options.outWidth / MODEL_INPUT_SIZE, options.outHeight / MODEL_INPUT_SIZE);
-                if (scaleFactor < 1) scaleFactor = 1;
+                InputStream inputStream = getContentResolver().openInputStream(imageUri);
+                Bitmap originalBitmap = BitmapFactory.decodeStream(inputStream, null, options);
+                if (inputStream != null) inputStream.close();
 
-                options.inJustDecodeBounds = false;
-                options.inSampleSize = scaleFactor;
-
-                InputStream inputStream2 = getContentResolver().openInputStream(imageUri);
-                Bitmap bitmap = BitmapFactory.decodeStream(inputStream2, null, options);
-                if (inputStream2 != null) inputStream2.close();
-
-                capturedImageBitmap = Bitmap.createScaledBitmap(bitmap, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE, true);
-
-                runModelInference(capturedImageBitmap);
+                if (originalBitmap != null) {
+                    // Ejecutar la inferencia en un hilo separado para no bloquear la UI
+                    new Thread(() -> {
+                        runModelInference(originalBitmap);
+                    }).start();
+                } else {
+                    runOnUiThread(() -> Toast.makeText(this, "Error al cargar imagen", Toast.LENGTH_SHORT).show());
+                }
 
             } catch (IOException e) {
-                Toast.makeText(this, "Error al cargar la imagen", Toast.LENGTH_SHORT).show();
-                Log.e(TAG, "Error al cargar imagen: " + e.getMessage(), e);
+                Log.e(TAG, "Error al cargar la imagen: " + e.getMessage(), e);
+                runOnUiThread(() -> Toast.makeText(this, "Error al cargar imagen", Toast.LENGTH_SHORT).show());
             } catch (Exception e) {
-                Toast.makeText(this, "Error inesperado", Toast.LENGTH_SHORT).show();
                 Log.e(TAG, "Error inesperado: " + e.getMessage(), e);
+                runOnUiThread(() -> Toast.makeText(this, "Error inesperado", Toast.LENGTH_SHORT).show());
             }
         }
     }
 
     private ByteBuffer convertBitmapToByteBuffer(Bitmap bitmap) {
+        // El modelo espera imágenes de 224x224 con 3 canales (RGB)
         ByteBuffer byteBuffer = ByteBuffer.allocateDirect(4 * MODEL_INPUT_SIZE * MODEL_INPUT_SIZE * 3);
         byteBuffer.order(ByteOrder.nativeOrder());
-        int[] intValues = new int[MODEL_INPUT_SIZE * MODEL_INPUT_SIZE];
-        bitmap.getPixels(intValues, 0, bitmap.getWidth(), 0, 0, bitmap.getWidth(), bitmap.getHeight());
 
+        // Redimensionar manteniendo la relación de aspecto
+        Bitmap resizedBitmap = resizeBitmapKeepAspect(bitmap, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
+
+        int[] intValues = new int[MODEL_INPUT_SIZE * MODEL_INPUT_SIZE];
+        resizedBitmap.getPixels(intValues, 0, MODEL_INPUT_SIZE, 0, 0, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE);
+
+        // Procesar píxeles igual que en Colab (normalización 0-1)
         for (int pixelValue : intValues) {
+            // Normalizar a [0, 1] como en Colab: /255.0
             float r = ((pixelValue >> 16) & 0xFF) / 255.0f;
             float g = ((pixelValue >> 8) & 0xFF) / 255.0f;
             float b = (pixelValue & 0xFF) / 255.0f;
+
             byteBuffer.putFloat(r);
             byteBuffer.putFloat(g);
             byteBuffer.putFloat(b);
         }
+
         return byteBuffer;
     }
 
+    private Bitmap resizeBitmapKeepAspect(Bitmap source, int targetWidth, int targetHeight) {
+        int originalWidth = source.getWidth();
+        int originalHeight = source.getHeight();
+
+        // Calcular escala manteniendo relación de aspecto
+        float scale = Math.min((float) targetWidth / originalWidth, (float) targetHeight / originalHeight);
+
+        int scaledWidth = Math.round(originalWidth * scale);
+        int scaledHeight = Math.round(originalHeight * scale);
+
+        // Crear bitmap escalado
+        Bitmap scaledBitmap = Bitmap.createScaledBitmap(source, scaledWidth, scaledHeight, true);
+
+        // Crear bitmap final con padding si es necesario
+        Bitmap finalBitmap = Bitmap.createBitmap(targetWidth, targetHeight, Bitmap.Config.ARGB_8888);
+        Canvas canvas = new Canvas(finalBitmap);
+        canvas.drawColor(Color.BLACK); // Fondo negro como padding
+
+        // Centrar la imagen escalada
+        float left = (targetWidth - scaledWidth) / 2.0f;
+        float top = (targetHeight - scaledHeight) / 2.0f;
+        canvas.drawBitmap(scaledBitmap, left, top, null);
+
+        return finalBitmap;
+    }
+
     private void runModelInference(Bitmap bitmap) {
+        if (bitmap == null) {
+            runOnUiThread(() -> status("Imagen no válida", Constants.OUTPUT_TEXT));
+            return;
+        }
+
         try {
+            Log.d("UPA", "Iniciando procesamiento de imagen: " + bitmap.getWidth() + "x" + bitmap.getHeight());
+
             if (tflite == null) {
-                MappedByteBuffer tfliteModel = FileUtil.loadMappedFile(this, "modelo.tflite");
-                tflite = new Interpreter(tfliteModel);
+                try {
+                    MappedByteBuffer tfliteModel = FileUtil.loadMappedFile(this, "modelo.tflite");
+                    Interpreter.Options options = new Interpreter.Options();
+                    tflite = new Interpreter(tfliteModel, options);
+                    Log.d("UPA", "✅ Modelo cargado exitosamente");
+                } catch (IOException e) {
+                    Log.e("UPA", "❌ Error cargando modelo: " + e.getMessage());
+                    runOnUiThread(() -> status("Error cargando modelo", Constants.OUTPUT_TEXT));
+                    return;
+                }
             }
 
             ByteBuffer inputBuffer = convertBitmapToByteBuffer(bitmap);
-
-            Log.d("UPA", "Input buffer capacity: " + inputBuffer.capacity());
-            int[] inputShape = tflite.getInputTensor(0).shape();
-            Log.d("UPA", "Modelo input shape: " + java.util.Arrays.toString(inputShape));
+            Log.d("UPA", "✅ Buffer de entrada creado");
 
             float[][] output = new float[1][NUM_CLASSES];
+
+            long startTime = System.currentTimeMillis();
             tflite.run(inputBuffer, output);
+            long endTime = System.currentTimeMillis();
 
-            for (int i = 0; i < NUM_CLASSES; i++) {
-                Log.d("UPA", "Clase " + i + ": " + output[0][i]);
-            }
+            Log.d("UPA", "✅ Inferencia completada en " + (endTime - startTime) + "ms");
 
+            // Procesar resultados...
             int maxIndex = 0;
             float maxProb = output[0][0];
             for (int i = 1; i < NUM_CLASSES; i++) {
@@ -373,22 +436,42 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
                 }
             }
 
-            String[] labels = {"Primer_piso_Decanato", "Primer_piso_Ascensores_y_baños", "Primer_piso_pasillo_de_aulas", "Primer_piso_Secretaria_de_decanato", "Primer_piso_Sala_PC", "Primer_piso_Anfiteatro"};
-            String location = maxIndex >= 0 && maxIndex < labels.length ? labels[maxIndex] : "Desconocido";
-            status("Ubicación detectada: " + location + " (" + String.format("%.2f", maxProb * 100) + "%)", Constants.OUTPUT_BOTH);
+            // Calcular diferencia con segunda predicción
+            float[] sortedProbs = output[0].clone();
+            Arrays.sort(sortedProbs);
+            float confidenceDiff = sortedProbs[NUM_CLASSES-1] - sortedProbs[NUM_CLASSES-2];
 
-        } catch (IOException e) {
-            status("Error cargando modelo", Constants.OUTPUT_TEXT);
+            // Umbrales de confianza
+            final float CONFIDENCE_THRESHOLD = 0.60f;
+            final float TOP_DIFF_THRESHOLD = 0.2f;
+
+            String[] labels = {"BañosSinGenero", "Aula10B", "AscensoresPlantaBaja", "Fotocopiadora", "PisoUnoBaños", "SalaPC", "Anfiteatro", "Aulas14y15", "Entrada", "Biblioteca", "Cefi", "Alumnos", "PlantaBajaBaños", "PisoUnoAulas1a4", "Lifia", "Decanato", "PisoUnoAscensores", "Aula5", "Buffet", "PlantaBajaAulas1a4"};
+
+            String location;
+            if (maxProb < CONFIDENCE_THRESHOLD || confidenceDiff < TOP_DIFF_THRESHOLD) {
+                location = "NO_RECONOCIDO";
+            } else {
+                location = maxIndex >= 0 && maxIndex < labels.length ? labels[maxIndex] : "NO_RECONOCIDO";
+            }
+
+            final String finalLocation = location;
+            final float finalMaxProb = maxProb;
+            runOnUiThread(() ->
+                    status("Ubicación detectada: " + finalLocation + " (" + String.format("%.2f", finalMaxProb * 100) + "%)", Constants.OUTPUT_BOTH)
+            );
+
+        } catch (Exception e) {
+            Log.e("UPA", "❌ Error en runModelInference: " + e.getMessage());
             e.printStackTrace();
+            runOnUiThread(() -> status("Error en reconocimiento", Constants.OUTPUT_TEXT));
         }
     }
-
     private String getLabelForIndex(int index) {
-        String[] labels = {"Primer_piso_Decanato", "Primer_piso_Ascensores_y_baños", "Primer_piso_pasillo_de_aulas", "Primer_piso_Secretaria_de_decanato", "Primer_piso_Sala_PC", "Primer_piso_Anfiteatro"};
+        String[] labels = {"BañosSinGenero", "Aula10B", "PB_Ascensores", "Fotocopiadora", "P1_Baños", "SalaPC", "Anfiteatro", "Aulas14-15", "Entrada", "Biblioteca", "Cefi", "Alumnos", "PB_Baños", "p1_Aulas1-4", "Lifia", "Decanato", "P1_Ascensores", "Aula5", "Buffet", "PB_Aulas1-4"};
         if (index >= 0 && index < labels.length) {
             return labels[index];
         }
-        return "Desconocido";
+        return "NO_RECONOCIDO";
     }
 
     @Override
@@ -548,4 +631,3 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
         }
     }
 }
-
