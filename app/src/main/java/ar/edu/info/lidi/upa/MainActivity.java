@@ -348,7 +348,7 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
     private void runModelInference(Bitmap bitmap) {
         try {
             if (tflite == null) {
-                MappedByteBuffer tfliteModel = FileUtil.loadMappedFile(this, "modelo.tflite");
+                MappedByteBuffer tfliteModel = FileUtil.loadMappedFile(this, "modelohiec.tflite");
                 tflite = new Interpreter(tfliteModel);
             }
 
@@ -375,18 +375,17 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
             }
 
             String[] labels = {"Alumnos", "Anfiteatro", "Aula10B", "Aula5", "Aulas14-15", "Baños_sin_genero", "Biblioteca", "Buffet", "Cefi", "Decanato", "Entrada", "Fotocopiadora", "Lifia", "P1_Ascensores", "P1_Aulas1-4", "P1_Baños", "PB_Ascensores", "PB_Aulas1-4", "PB_Baños", "SalaPC"};
-            String location = maxIndex >= 0 && maxIndex < labels.length ? labels[maxIndex] : "Desconocido";
-            status("Ubicación detectada: " + location + " (" + String.format("%.2f", maxProb * 100) + "%)", Constants.OUTPUT_BOTH);
 
-            // Calcular diferencia con segunda predicción
+// Calcular diferencia con segunda predicción
             float[] sortedProbs = output[0].clone();
             Arrays.sort(sortedProbs);
             float confidenceDiff = sortedProbs[NUM_CLASSES-1] - sortedProbs[NUM_CLASSES-2];
 
-            // Umbrales de confianza
+// Umbrales de confianza
             final float CONFIDENCE_THRESHOLD = 0.60f;
             final float TOP_DIFF_THRESHOLD = 0.2f;
 
+            String location;
             if (maxProb < CONFIDENCE_THRESHOLD || confidenceDiff < TOP_DIFF_THRESHOLD) {
                 location = "NO_RECONOCIDO";
             } else {
@@ -395,9 +394,15 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
 
             final String finalLocation = location;
             final float finalMaxProb = maxProb;
-            runOnUiThread(() ->
-                    status("Ubicación detectada: " + finalLocation + " (" + String.format("%.2f", finalMaxProb * 100) + "%)", Constants.OUTPUT_BOTH)
-            );
+
+            runOnUiThread(() -> {
+                if ("NO_RECONOCIDO".equals(finalLocation)) {
+                    status("Ubicación detectada: NO_RECONOCIDO", Constants.OUTPUT_BOTH);
+                } else {
+                    status("Ubicación detectada: " + finalLocation + " (" + String.format("%.2f", finalMaxProb * 100) + "%)", Constants.OUTPUT_BOTH);
+                }
+            });
+
         } catch (IOException e) {
             status("Error cargando modelo", Constants.OUTPUT_TEXT);
             e.printStackTrace();
