@@ -57,6 +57,7 @@ import ar.edu.info.lidi.upa.tts.TTSListener;
 import ar.edu.info.lidi.upa.utils.Constants;
 import ar.edu.info.lidi.upa.utils.JSONExporter;
 import ar.edu.info.lidi.upa.utils.JSONImporter;
+import java.util.Arrays;
 
 public class MainActivity extends AppCompatActivity implements ProcessCompletedCallBackInterface, Observer {
 
@@ -94,7 +95,7 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
     private static final int REQUEST_IMAGE_PICK = 2;
 
     private static final int MODEL_INPUT_SIZE = 224;
-    private static final int NUM_CLASSES = 4;
+    private static final int NUM_CLASSES = 20;
     private Interpreter tflite;
     private Bitmap capturedImageBitmap;
 
@@ -373,10 +374,30 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
                 }
             }
 
-            String[] labels = {"Primer_piso_Decanato", "Primer_piso_Ascensores_y_baños", "Primer_piso_pasillo_de_aulas", "Primer_piso_Secretaria_de_decanato", "Primer_piso_Sala_PC", "Primer_piso_Anfiteatro"};
+            String[] labels = {"Alumnos", "Anfiteatro", "Aula10B", "Aula5", "Aulas14-15", "Baños_sin_genero", "Biblioteca", "Buffet", "Cefi", "Decanato", "Entrada", "Fotocopiadora", "Lifia", "P1_Ascensores", "P1_Aulas1-4", "P1_Baños", "PB_Ascensores", "PB_Aulas1-4", "PB_Baños", "SalaPC"};
             String location = maxIndex >= 0 && maxIndex < labels.length ? labels[maxIndex] : "Desconocido";
             status("Ubicación detectada: " + location + " (" + String.format("%.2f", maxProb * 100) + "%)", Constants.OUTPUT_BOTH);
 
+            // Calcular diferencia con segunda predicción
+            float[] sortedProbs = output[0].clone();
+            Arrays.sort(sortedProbs);
+            float confidenceDiff = sortedProbs[NUM_CLASSES-1] - sortedProbs[NUM_CLASSES-2];
+
+            // Umbrales de confianza
+            final float CONFIDENCE_THRESHOLD = 0.60f;
+            final float TOP_DIFF_THRESHOLD = 0.2f;
+
+            if (maxProb < CONFIDENCE_THRESHOLD || confidenceDiff < TOP_DIFF_THRESHOLD) {
+                location = "NO_RECONOCIDO";
+            } else {
+                location = maxIndex >= 0 && maxIndex < labels.length ? labels[maxIndex] : "NO_RECONOCIDO";
+            }
+
+            final String finalLocation = location;
+            final float finalMaxProb = maxProb;
+            runOnUiThread(() ->
+                    status("Ubicación detectada: " + finalLocation + " (" + String.format("%.2f", finalMaxProb * 100) + "%)", Constants.OUTPUT_BOTH)
+            );
         } catch (IOException e) {
             status("Error cargando modelo", Constants.OUTPUT_TEXT);
             e.printStackTrace();
