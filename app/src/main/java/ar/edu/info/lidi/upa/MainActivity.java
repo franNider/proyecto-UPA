@@ -6,6 +6,7 @@ import androidx.appcompat.widget.Toolbar;
 import androidx.core.app.ActivityCompat;
 import androidx.core.content.ContextCompat;
 import androidx.core.content.FileProvider;
+import androidx.exifinterface.media.ExifInterface;
 
 import android.Manifest;
 import android.graphics.BitmapFactory;
@@ -18,6 +19,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.Matrix;
 import android.net.Uri;
 import android.os.Bundle;
 import android.os.Environment;
@@ -98,6 +100,56 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
     private static final int NUM_CLASSES = 20;
     private Interpreter tflite;
     private Bitmap capturedImageBitmap;
+
+    private String getReadableLocationName(String label) {
+        switch (label) {
+            case "Alumnos":
+                return "Alumnos";
+            case "Anfiteatro":
+                return "Anfiteatro";
+            case "Aula10B":
+                return "Aula 10 B";
+            case "Aula5":
+                return "Aula 5";
+            case "Aulas14-15":
+                return "Aulas 14 y 15";
+            case "Baños_sin_genero":
+                return "Baños sin género";
+            case "Biblioteca":
+                return "Biblioteca";
+            case "Buffet":
+                return "Buffet";
+            case "Cefi":
+                return "Cefi";
+            case "Decanato":
+                return "Decanato";
+            case "Entrada":
+                return "Entrada";
+            case "Fotocopiadora":
+                return "Fotocopiadora";
+            case "Lifia":
+                return "Lifia";
+            case "P1_Ascensores":
+                return "Primer piso, ascensores";
+            case "P1_Aulas1-4":
+                return "Primer piso, aulas 1 a 4";
+            case "P1_Baños":
+                return "Primer piso, baños";
+            case "PB_Ascensores":
+                return "Planta baja, ascensores";
+            case "PB_Aulas1-4":
+                return "Planta baja, aulas 1 a 4";
+            case "PB_Baños":
+                return "Planta baja, baños";
+            case "SalaPC":
+                return "Sala de Pe Ce";
+            case "NO_RECONOCIDO":
+                return "No se logró reconocer, vuelva a intentar";
+            default:
+                return label; // por si aparece alguna etiqueta nueva
+        }
+    }
+
 
     private void abrirGaleria() {
         Intent intent = new Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI);
@@ -314,6 +366,8 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
                 Bitmap bitmap = BitmapFactory.decodeStream(inputStream2, null, options);
                 if (inputStream2 != null) inputStream2.close();
 
+                bitmap = fixImageOrientation(imageUri, bitmap);
+
                 capturedImageBitmap = Bitmap.createScaledBitmap(bitmap, MODEL_INPUT_SIZE, MODEL_INPUT_SIZE, true);
 
                 runModelInference(capturedImageBitmap);
@@ -327,6 +381,32 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
             }
         }
     }
+
+    private Bitmap fixImageOrientation(Uri imageUri, Bitmap bitmap) throws IOException {
+        InputStream input = getContentResolver().openInputStream(imageUri);
+        ExifInterface exif = new ExifInterface(input);
+        int orientation = exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL);
+        input.close();
+
+        Matrix matrix = new Matrix();
+        switch (orientation) {
+            case ExifInterface.ORIENTATION_ROTATE_90:
+                matrix.postRotate(90);
+                break;
+            case ExifInterface.ORIENTATION_ROTATE_180:
+                matrix.postRotate(180);
+                break;
+            case ExifInterface.ORIENTATION_ROTATE_270:
+                matrix.postRotate(270);
+                break;
+            default:
+                return bitmap;
+        }
+
+        Log.d("EXIF", "Rotación aplicada: " + orientation);
+        return Bitmap.createBitmap(bitmap, 0, 0, bitmap.getWidth(), bitmap.getHeight(), matrix, true);
+    }
+
 
     private ByteBuffer convertBitmapToByteBuffer(Bitmap bitmap) {
         ByteBuffer byteBuffer = ByteBuffer.allocateDirect(4 * MODEL_INPUT_SIZE * MODEL_INPUT_SIZE * 3);
@@ -347,24 +427,22 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
 
     private void runModelInference(Bitmap bitmap) {
         try {
+            // --- 1️⃣ Cargar modelo si no está cargado ---
             if (tflite == null) {
-                MappedByteBuffer tfliteModel = FileUtil.loadMappedFile(this, "modelohiec.tflite");
+                MappedByteBuffer tfliteModel = FileUtil.loadMappedFile(this, "modeloSINhiecFRAN.tflite");
                 tflite = new Interpreter(tfliteModel);
             }
 
+            // --- 2️⃣ Convertir imagen a ByteBuffer ---
             ByteBuffer inputBuffer = convertBitmapToByteBuffer(bitmap);
 
-            Log.d("UPA", "Input buffer capacity: " + inputBuffer.capacity());
-            int[] inputShape = tflite.getInputTensor(0).shape();
-            Log.d("UPA", "Modelo input shape: " + java.util.Arrays.toString(inputShape));
-
+            // --- 3️⃣ Crear array de salida ---
             float[][] output = new float[1][NUM_CLASSES];
+
+            // --- 4️⃣ Ejecutar inferencia ---
             tflite.run(inputBuffer, output);
 
-            for (int i = 0; i < NUM_CLASSES; i++) {
-                Log.d("UPA", "Clase " + i + ": " + output[0][i]);
-            }
-
+            // --- 5️⃣ Encontrar la clase con mayor probabilidad ---
             int maxIndex = 0;
             float maxProb = output[0][0];
             for (int i = 1; i < NUM_CLASSES; i++) {
@@ -374,14 +452,17 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
                 }
             }
 
-            String[] labels = {"Alumnos", "Anfiteatro", "Aula10B", "Aula5", "Aulas14-15", "Baños_sin_genero", "Biblioteca", "Buffet", "Cefi", "Decanato", "Entrada", "Fotocopiadora", "Lifia", "P1_Ascensores", "P1_Aulas1-4", "P1_Baños", "PB_Ascensores", "PB_Aulas1-4", "PB_Baños", "SalaPC"};
+            // --- 6️⃣ Definir labels ---
+            String[] labels = {"Alumnos", "Anfiteatro", "Aula10B", "Aula5", "Aulas14-15",
+                    "Baños_sin_genero", "Biblioteca", "Buffet", "Cefi", "Decanato",
+                    "Entrada", "Fotocopiadora", "Lifia", "P1_Ascensores", "P1_Aulas1-4",
+                    "P1_Baños", "PB_Ascensores", "PB_Aulas1-4", "PB_Baños", "SalaPC"};
 
-// Calcular diferencia con segunda predicción
+            // --- 7️⃣ Calcular diferencia con segunda probabilidad ---
             float[] sortedProbs = output[0].clone();
             Arrays.sort(sortedProbs);
-            float confidenceDiff = sortedProbs[NUM_CLASSES-1] - sortedProbs[NUM_CLASSES-2];
+            float confidenceDiff = sortedProbs[NUM_CLASSES - 1] - sortedProbs[NUM_CLASSES - 2];
 
-// Umbrales de confianza
             final float CONFIDENCE_THRESHOLD = 0.60f;
             final float TOP_DIFF_THRESHOLD = 0.2f;
 
@@ -392,14 +473,16 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
                 location = maxIndex >= 0 && maxIndex < labels.length ? labels[maxIndex] : "NO_RECONOCIDO";
             }
 
-            final String finalLocation = location;
+            // --- 8️⃣ Obtener nombre legible para TTS ---
+            String readableLabel = getReadableLocationName(location);
             final float finalMaxProb = maxProb;
 
+            // --- 9️⃣ Mostrar en UI y TTS ---
             runOnUiThread(() -> {
-                if ("NO_RECONOCIDO".equals(finalLocation)) {
-                    status("Ubicación detectada: NO_RECONOCIDO", Constants.OUTPUT_BOTH);
+                if ("NO_RECONOCIDO".equals(location)) {
+                    status(readableLabel, Constants.OUTPUT_BOTH);
                 } else {
-                    status("Ubicación detectada: " + finalLocation + " (" + String.format("%.2f", finalMaxProb * 100) + "%)", Constants.OUTPUT_BOTH);
+                    status("Ubicación detectada: " + readableLabel + " (" + String.format("%.2f", finalMaxProb * 100) + "%)", Constants.OUTPUT_BOTH);
                 }
             });
 
@@ -408,6 +491,7 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
             e.printStackTrace();
         }
     }
+
 
     private String getLabelForIndex(int index) {
         String[] labels = {"Primer_piso_Decanato", "Primer_piso_Ascensores_y_baños", "Primer_piso_pasillo_de_aulas", "Primer_piso_Secretaria_de_decanato", "Primer_piso_Sala_PC", "Primer_piso_Anfiteatro"};
