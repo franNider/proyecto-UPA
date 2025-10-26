@@ -463,7 +463,7 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
             Arrays.sort(sortedProbs);
             float confidenceDiff = sortedProbs[NUM_CLASSES - 1] - sortedProbs[NUM_CLASSES - 2];
 
-            final float CONFIDENCE_THRESHOLD = 0.60f;
+            final float CONFIDENCE_THRESHOLD = 0.75f;
             final float TOP_DIFF_THRESHOLD = 0.2f;
 
             String location;
