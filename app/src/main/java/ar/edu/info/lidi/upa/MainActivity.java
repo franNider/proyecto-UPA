@@ -429,7 +429,7 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
         try {
             // --- 1️⃣ Cargar modelo si no está cargado ---
             if (tflite == null) {
-                MappedByteBuffer tfliteModel = FileUtil.loadMappedFile(this, "modeloSINhiecFRAN.tflite");
+                MappedByteBuffer tfliteModel = FileUtil.loadMappedFile(this, "modelo.tflite");
                 tflite = new Interpreter(tfliteModel);
             }
 
