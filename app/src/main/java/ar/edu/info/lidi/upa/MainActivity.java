@@ -427,22 +427,22 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
 
     private void runModelInference(Bitmap bitmap) {
         try {
-            // --- 1️⃣ Cargar modelo si no está cargado ---
+            // Cargar modelo si no está cargado
             if (tflite == null) {
                 MappedByteBuffer tfliteModel = FileUtil.loadMappedFile(this, "modelo.tflite");
                 tflite = new Interpreter(tfliteModel);
             }
 
-            // --- 2️⃣ Convertir imagen a ByteBuffer ---
+            // Convertir imagen a ByteBuffer
             ByteBuffer inputBuffer = convertBitmapToByteBuffer(bitmap);
 
-            // --- 3️⃣ Crear array de salida ---
+            // Crear array de salida
             float[][] output = new float[1][NUM_CLASSES];
 
-            // --- 4️⃣ Ejecutar inferencia ---
+            // Ejecutar inferencia
             tflite.run(inputBuffer, output);
 
-            // --- 5️⃣ Encontrar la clase con mayor probabilidad ---
+            // Encontrar la clase con mayor probabilidad
             int maxIndex = 0;
             float maxProb = output[0][0];
             for (int i = 1; i < NUM_CLASSES; i++) {
@@ -452,13 +452,13 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
                 }
             }
 
-            // --- 6️⃣ Definir labels ---
+            // Definir labels
             String[] labels = {"Alumnos", "Anfiteatro", "Aula10B", "Aula5", "Aulas14-15",
                     "Baños_sin_genero", "Biblioteca", "Buffet", "Cefi", "Decanato",
                     "Entrada", "Fotocopiadora", "Lifia", "P1_Ascensores", "P1_Aulas1-4",
                     "P1_Baños", "PB_Ascensores", "PB_Aulas1-4", "PB_Baños", "SalaPC"};
 
-            // --- 7️⃣ Calcular diferencia con segunda probabilidad ---
+            // Calcular diferencia con segunda probabilidad
             float[] sortedProbs = output[0].clone();
             Arrays.sort(sortedProbs);
             float confidenceDiff = sortedProbs[NUM_CLASSES - 1] - sortedProbs[NUM_CLASSES - 2];
@@ -473,11 +473,11 @@ public class MainActivity extends AppCompatActivity implements ProcessCompletedC
                 location = maxIndex >= 0 && maxIndex < labels.length ? labels[maxIndex] : "NO_RECONOCIDO";
             }
 
-            // --- 8️⃣ Obtener nombre legible para TTS ---
+            // Obtener nombre legible para TTS
             String readableLabel = getReadableLocationName(location);
             final float finalMaxProb = maxProb;
 
-            // --- 9️⃣ Mostrar en UI y TTS ---
+            // Mostrar en UI y TTS
             runOnUiThread(() -> {
                 if ("NO_RECONOCIDO".equals(location)) {
                     status(readableLabel, Constants.OUTPUT_BOTH);
